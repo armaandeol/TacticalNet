@@ -1,0 +1,9 @@
+{
+  "_note": "SAMPLE latent style vectors [possession, pressing_intensity, directness, width] as computed by compute_team_style_from_events() in src/pipeline.py. Values in [0, 1].",
+  "Argentina": [0.71, 0.68, 0.22, 0.41],
+  "England": [0.55, 0.44, 0.38, 0.57],
+  "France": [0.52, 0.51, 0.46, 0.49],
+  "Spain": [0.78, 0.62, 0.15, 0.36],
+  "Croatia": [0.63, 0.49, 0.31, 0.38],
+  "Brazil": [0.66, 0.58, 0.27, 0.52]
+}

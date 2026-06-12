@@ -1,0 +1,41 @@
+[
+  {
+    "match_id": 8650,
+    "home_team": "Argentina",
+    "away_team": "France",
+    "home_players": [5503, 5487, 5477, 5506, 6909, 5472, 22084, 5485, 11669, 5474, 28055],
+    "away_players": [3009, 5476, 3961, 5485, 20004, 3501, 4374, 3604, 3955, 5487, 31021],
+    "home_score": 3,
+    "away_score": 3,
+    "year": 2022,
+    "match_date": "2022-12-18",
+    "competition": "wc_2022",
+    "_note": "SAMPLE record illustrating the raw match schema produced by src/pipeline.py (process_real_statsbomb_data). Player IDs follow StatsBomb conventions."
+  },
+  {
+    "match_id": 8657,
+    "home_team": "England",
+    "away_team": "France",
+    "home_players": [3468, 3336, 3306, 5687, 10955, 3244, 4354, 18021, 3308, 3094, 22082],
+    "away_players": [3009, 5476, 3961, 5485, 20004, 3501, 4374, 3604, 3955, 5487, 31021],
+    "home_score": 1,
+    "away_score": 2,
+    "year": 2022,
+    "match_date": "2022-12-10",
+    "competition": "wc_2022",
+    "_note": "SAMPLE record"
+  },
+  {
+    "match_id": 7585,
+    "home_team": "England",
+    "away_team": "Croatia",
+    "home_players": [3468, 3336, 3306, 5687, 10955, 3244, 4354, 18021, 3308, 3094, 22082],
+    "away_players": [5463, 5465, 5470, 5474, 5478, 5481, 5485, 5489, 5492, 5495, 5499],
+    "home_score": 1,
+    "away_score": 2,
+    "year": 2018,
+    "match_date": "2018-07-11",
+    "competition": "wc_2018",
+    "_note": "SAMPLE record"
+  }
+]
