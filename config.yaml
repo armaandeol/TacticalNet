@@ -1,0 +1,74 @@
+# World Cup 2026 Predictor Configuration
+# ========================================
+
+# Data paths
+paths:
+  data_dir: "data"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  video_dir: "data/video"
+  weights_dir: "weights"
+
+# StatsBomb competition IDs
+competitions:
+  fifa_world_cup: 43
+  uefa_euro: 55
+  copa_america: 223
+  afc_asian_cup: 1
+
+# Season IDs for World Cups
+seasons:
+  wc_2022: 106
+  wc_2018: 3
+  wc_2014: 26
+  wc_2010: 27
+
+# Model hyperparameters
+model:
+  player_feature_dim: 64
+  hidden_dim: 128
+  style_latent_dim: 4
+  lstm_input_size: 4
+  lstm_num_layers: 2
+  lstm_dropout: 0.2
+  gnn_type: "gcn"  # "gcn" or "gat"
+  classifier_dropout: 0.3
+
+# Training settings
+training:
+  batch_size: 32
+  epochs: 50
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  sequence_window: 20
+  device: "auto"  # "auto", "cuda", "cpu"
+
+# Autoencoder pre-training
+autoencoder:
+  epochs: 100
+  learning_rate: 0.001
+
+# LSTM pre-training
+lstm:
+  epochs: 50
+  learning_rate: 0.001
+
+# Backtesting folds
+backtest:
+  fold1:
+    train_end: 2017
+    test_year: 2018
+  fold2:
+    train_end: 2018
+    test_year: 2022
+
+# Vision pipeline (YOLOv8)
+vision:
+  model_path: "weights/yolov8_soccernet.pt"
+  confidence_threshold: 0.4
+  frame_skip: 5
+
+# Streamlit app
+app:
+  page_title: "WC 2026 Match Simulator"
+  page_icon: "⚽"
