@@ -1,0 +1,153 @@
+# GitLab CI/CD Pipeline for World Cup 2026 Predictor
+# ===================================================
+
+stages:
+  - lint
+  - test
+  - build
+  - deploy
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  PYTHON_VERSION: "3.11"
+
+# Cache pip packages between jobs
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .pip-cache/
+    - venv/
+
+# ─────────────────────────────────────────────
+# Templates
+# ─────────────────────────────────────────────
+
+.python-setup: &python-setup
+  image: python:${PYTHON_VERSION}-slim
+  before_script:
+    - python -m venv venv
+    - source venv/bin/activate
+    - pip install --upgrade pip
+    - pip install -r requirements.txt
+
+# ─────────────────────────────────────────────
+# Lint Stage
+# ─────────────────────────────────────────────
+
+lint:flake8:
+  stage: lint
+  <<: *python-setup
+  script:
+    - pip install flake8
+    - flake8 src/ --max-line-length=120 --ignore=E501,W503
+  allow_failure: true
+
+lint:imports:
+  stage: lint
+  <<: *python-setup
+  script:
+    - pip install isort
+    - isort --check-only --diff src/
+  allow_failure: true
+
+# ─────────────────────────────────────────────
+# Test Stage
+# ─────────────────────────────────────────────
+
+test:unit:
+  stage: test
+  <<: *python-setup
+  script:
+    - pip install pytest pytest-cov
+    # Run basic import tests
+    - python -c "from src.modules import TacticalNet, PlayerLSTM, StyleAutoencoder; print('✅ Modules import OK')"
+    - python -c "from src.dataset import MatchDataset, generate_synthetic_data; print('✅ Dataset import OK')"
+    - python -c "from src.data_prep import build_lstm_sequences; print('✅ Data prep import OK')"
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.xml
+
+test:model-forward:
+  stage: test
+  <<: *python-setup
+  script:
+    - |
+      python -c "
+      import torch
+      from torch_geometric.data import Data
+      from src.modules import TacticalNet
+      
+      # Create dummy data
+      def dummy_graph(n=11, feat=64):
+          x = torch.randn(n, feat)
+          src = [i for i in range(n) for j in range(n) if i != j]
+          dst = [j for i in range(n) for j in range(n) if i != j]
+          return Data(x=x, edge_index=torch.tensor([src, dst]), batch=torch.zeros(n, dtype=torch.long))
+      
+      model = TacticalNet(player_feature_dim=64, hidden_dim=128, style_latent_dim=4)
+      da, db = dummy_graph(), dummy_graph()
+      sa, sb = torch.randn(1, 4), torch.randn(1, 4)
+      
+      logits = model(da, db, sa, sb)
+      assert logits.shape == (1, 3), f'Expected (1, 3), got {logits.shape}'
+      print('✅ Model forward pass OK')
+      "
+
+test:data-pipeline:
+  stage: test
+  <<: *python-setup
+  script:
+    - |
+      python -c "
+      from src.dataset import generate_synthetic_data, MatchDataset, collate_match_batch
+      from torch.utils.data import DataLoader
+      
+      matches, embeddings, styles = generate_synthetic_data(num_matches=50)
+      dataset = MatchDataset(matches, embeddings, styles)
+      loader = DataLoader(dataset, batch_size=8, collate_fn=collate_match_batch)
+      
+      batch = next(iter(loader))
+      assert len(batch) == 5, 'Batch should have 5 elements'
+      print(f'✅ DataLoader OK: batch of {batch[4].shape[0]} samples')
+      "
+
+# ─────────────────────────────────────────────
+# Build Stage
+# ─────────────────────────────────────────────
+
+build:train-demo:
+  stage: build
+  <<: *python-setup
+  script:
+    - python src/pipeline.py --stage data
+    - python src/pipeline.py --stage train
+    - python src/pipeline.py --stage evaluate
+  artifacts:
+    paths:
+      - weights/
+      - data/processed/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+
+# ─────────────────────────────────────────────
+# Deploy Stage (Optional)
+# ─────────────────────────────────────────────
+
+# Uncomment to deploy Streamlit app
+# deploy:streamlit:
+#   stage: deploy
+#   image: python:${PYTHON_VERSION}-slim
+#   script:
+#     - pip install -r requirements.txt
+#     - echo "Deploy to Streamlit Cloud or other hosting"
+#   environment:
+#     name: production
+#     url: https://your-app-url.streamlit.app
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+#       when: manual
