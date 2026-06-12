@@ -61,8 +61,6 @@ class MatchDataset(Dataset):
         Nodes: 11 players with their LSTM embeddings
         Edges: All pairs (passing network approximation)
         """
-        num_players = len(player_ids)
-        
         # Get player embeddings (use random if not found)
         node_features = []
         for pid in player_ids:
@@ -260,7 +258,7 @@ def generate_synthetic_data(
         )
         team_styles[team] = style
     
-    # Generate matches
+    # Generate matches - ensure all values are Python native types for JSON serialization
     matches = []
     for i in range(num_matches):
         home, away = rng.choice(teams, size=2, replace=False)
@@ -273,14 +271,14 @@ def generate_synthetic_data(
         away_score = int(rng.poisson(1.5 * away_strength + 0.5))
         
         matches.append({
-            'match_id': i + 1,
-            'home_team': home,
-            'away_team': away,
-            'home_players': team_players[home],
-            'away_players': team_players[away],
-            'home_score': home_score,
-            'away_score': away_score,
-            'year': rng.choice([2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]),
+            'match_id': int(i + 1),
+            'home_team': str(home),
+            'away_team': str(away),
+            'home_players': [int(p) for p in team_players[home]],
+            'away_players': [int(p) for p in team_players[away]],
+            'home_score': int(home_score),
+            'away_score': int(away_score),
+            'year': int(rng.choice([2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022])),
         })
     
     logger.info(f"Generated {num_matches} synthetic matches with {len(player_embeddings)} players")
