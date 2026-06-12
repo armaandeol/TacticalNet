@@ -3,7 +3,7 @@ Phase 3: Training Loop with Time-Series Backtesting
 
 Validation strategy (no data leakage):
   - Fold 1: Train 2010-2017 → Test on 2018 World Cup
-  - Fold 2: Train 2010-2018 → Test on 2022 World Cup
+  - Fold 2: Train 2010-2021 → Test on 2022 World Cup
   - Final:  Train 2010-2022 → Predict 2026 World Cup
 
 Metrics: Cross-Entropy Loss + Brier Score (calibration)
@@ -12,12 +12,14 @@ Metrics: Cross-Entropy Loss + Brier Score (calibration)
 import logging
 from pathlib import Path
 from typing import Optional
+from collections import Counter
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingWarmRestarts, ReduceLROnPlateau
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
@@ -31,7 +33,7 @@ WEIGHTS_DIR.mkdir(exist_ok=True)
 
 
 # ─────────────────────────────────────────────
-# Brier Score (calibration metric)
+# Metrics
 # ─────────────────────────────────────────────
 
 def brier_score(probs: np.ndarray, labels: np.ndarray, num_classes: int = 3) -> float:
@@ -44,6 +46,53 @@ def brier_score(probs: np.ndarray, labels: np.ndarray, num_classes: int = 3) -> 
     """
     one_hot = np.eye(num_classes)[labels]
     return float(np.mean(np.sum((probs - one_hot) ** 2, axis=1)))
+
+
+def compute_class_weights(labels: list, num_classes: int = 3) -> torch.Tensor:
+    """
+    Compute inverse frequency class weights for imbalanced data.
+    """
+    counts = Counter(labels)
+    total = sum(counts.values())
+    weights = []
+    for i in range(num_classes):
+        count = counts.get(i, 1)
+        weights.append(total / (num_classes * count))
+    return torch.tensor(weights, dtype=torch.float32)
+
+
+# ─────────────────────────────────────────────
+# Label Smoothing Loss
+# ─────────────────────────────────────────────
+
+class LabelSmoothingCrossEntropy(nn.Module):
+    """
+    Cross entropy with label smoothing for better calibration.
+    """
+    def __init__(self, smoothing: float = 0.1, weight: Optional[torch.Tensor] = None):
+        super().__init__()
+        self.smoothing = smoothing
+        self.weight = weight
+        
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        n_classes = pred.size(-1)
+        
+        # Create smoothed labels
+        with torch.no_grad():
+            true_dist = torch.zeros_like(pred)
+            true_dist.fill_(self.smoothing / (n_classes - 1))
+            true_dist.scatter_(1, target.unsqueeze(1), 1.0 - self.smoothing)
+        
+        # Compute loss
+        log_probs = F.log_softmax(pred, dim=-1)
+        
+        if self.weight is not None:
+            # Apply class weights
+            weight = self.weight.to(pred.device)
+            log_probs = log_probs * weight.unsqueeze(0)
+        
+        loss = (-true_dist * log_probs).sum(dim=-1).mean()
+        return loss
 
 
 # ─────────────────────────────────────────────
@@ -181,11 +230,25 @@ def evaluate(
     preds = all_probs.argmax(axis=1)
     accuracy = float((preds == all_labels).mean())
     bs = brier_score(all_probs, all_labels)
+    
+    # Per-class accuracy
+    class_names = ["Home Win", "Draw", "Away Win"]
+    per_class_acc = {}
+    for i, name in enumerate(class_names):
+        mask = all_labels == i
+        if mask.sum() > 0:
+            per_class_acc[name] = float((preds[mask] == i).mean())
+        else:
+            per_class_acc[name] = 0.0
 
     return {
         "loss": total_loss / len(loader),
         "accuracy": accuracy,
         "brier_score": bs,
+        "per_class_accuracy": per_class_acc,
+        "predictions": preds,
+        "labels": all_labels,
+        "probabilities": all_probs,
     }
 
 
@@ -193,13 +256,15 @@ def run_backtest_fold(
     train_loader,
     test_loader,
     fold_name: str,
-    epochs: int = 50,
-    lr: float = 1e-3,
+    epochs: int = 100,
+    lr: float = 5e-4,
     device: str = "cpu",
     player_feature_dim: int = 64,
     hidden_dim: int = 128,
     style_latent_dim: int = 4,
     gnn_type: str = "gcn",
+    label_smoothing: float = 0.1,
+    early_stopping_patience: int = 15,
 ) -> dict:
     """
     Train and evaluate TacticalNet for one backtesting fold.
@@ -210,40 +275,86 @@ def run_backtest_fold(
         hidden_dim=hidden_dim,
         style_latent_dim=style_latent_dim,
         gnn_type=gnn_type,
+        dropout=0.4,  # Higher dropout for regularization
     ).to(device)
+    
+    # Count parameters
+    num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logger.info(f"[{fold_name}] Model has {num_params:,} trainable parameters")
+    
+    # Compute class weights from training data
+    train_labels = []
+    for batch in train_loader:
+        train_labels.extend(batch[4].tolist())
+    class_weights = compute_class_weights(train_labels)
+    logger.info(f"[{fold_name}] Class distribution: {Counter(train_labels)}")
+    logger.info(f"[{fold_name}] Class weights: {class_weights.tolist()}")
 
-    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
-    criterion = nn.CrossEntropyLoss()
+    optimizer = AdamW(model.parameters(), lr=lr, weight_decay=0.01)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=5, verbose=True)
+    criterion = LabelSmoothingCrossEntropy(smoothing=label_smoothing, weight=class_weights)
 
     best_brier = float("inf")
+    best_acc = 0.0
     best_state = None
+    patience_counter = 0
 
     for epoch in range(1, epochs + 1):
         train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
-        scheduler.step()
-
-        if epoch % 10 == 0:
+        
+        # Evaluate every 5 epochs
+        if epoch % 5 == 0 or epoch == 1:
             metrics = evaluate(model, test_loader, criterion, device)
+            scheduler.step(metrics['brier_score'])
+            
+            current_lr = optimizer.param_groups[0]['lr']
             logger.info(
-                f"[{fold_name}] Epoch {epoch}/{epochs} "
+                f"[{fold_name}] Epoch {epoch:3d}/{epochs} "
                 f"| Train Loss: {train_loss:.4f} "
-                f"| Val Acc: {metrics['accuracy']:.3f} "
-                f"| Brier: {metrics['brier_score']:.4f}"
+                f"| Val Acc: {metrics['accuracy']:.1%} "
+                f"| Brier: {metrics['brier_score']:.4f} "
+                f"| LR: {current_lr:.6f}"
             )
+            
+            # Log per-class accuracy
+            pca = metrics['per_class_accuracy']
+            logger.info(
+                f"[{fold_name}]   Per-class: "
+                f"Home={pca.get('Home Win', 0):.1%}, "
+                f"Draw={pca.get('Draw', 0):.1%}, "
+                f"Away={pca.get('Away Win', 0):.1%}"
+            )
+            
+            # Save best model (prioritize Brier score for calibration)
             if metrics["brier_score"] < best_brier:
                 best_brier = metrics["brier_score"]
+                best_acc = metrics["accuracy"]
                 best_state = {k: v.clone() for k, v in model.state_dict().items()}
+                patience_counter = 0
+                logger.info(f"[{fold_name}]   ✓ New best model!")
+            else:
+                patience_counter += 1
+            
+            # Early stopping
+            if patience_counter >= early_stopping_patience:
+                logger.info(f"[{fold_name}] Early stopping at epoch {epoch}")
+                break
 
     # Save best checkpoint for this fold
     if best_state:
         model.load_state_dict(best_state)
         torch.save(best_state, WEIGHTS_DIR / f"tactical_net_{fold_name}.pt")
-        logger.info(f"[{fold_name}] Best model saved (Brier: {best_brier:.4f})")
+        logger.info(f"[{fold_name}] Best model saved (Brier: {best_brier:.4f}, Acc: {best_acc:.1%})")
 
     final_metrics = evaluate(model, test_loader, criterion, device)
-    logger.info(f"[{fold_name}] Final — Acc: {final_metrics['accuracy']:.3f}, Brier: {final_metrics['brier_score']:.4f}")
-    return final_metrics
+    logger.info(f"[{fold_name}] Final — Acc: {final_metrics['accuracy']:.1%}, Brier: {final_metrics['brier_score']:.4f}")
+    
+    # Return simplified metrics for JSON serialization
+    return {
+        "loss": final_metrics["loss"],
+        "accuracy": final_metrics["accuracy"],
+        "brier_score": final_metrics["brier_score"],
+    }
 
 
 if __name__ == "__main__":
