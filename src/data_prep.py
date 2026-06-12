@@ -81,8 +81,6 @@ def build_player_match_stats(events: pd.DataFrame, match_id: int) -> pd.DataFram
     Returns a DataFrame with columns: player_id, xG, progressive_passes,
     defensive_interventions, distance_covered.
     """
-    stats = []
-
     # xG: sum of shot statsbomb_xg per player
     shots = events[events["type"] == "Shot"].copy()
     if "shot" in shots.columns:
@@ -114,7 +112,11 @@ def build_player_match_stats(events: pd.DataFrame, match_id: int) -> pd.DataFram
     df = all_players.merge(xg_per_player, on="player_id", how="left")
     df = df.merge(prog_passes, on="player_id", how="left")
     df = df.merge(def_interventions, on="player_id", how="left")
+    
+    # Fix FutureWarning: use infer_objects after fillna
     df = df.fillna(0.0)
+    df = df.infer_objects(copy=False)
+    
     df["match_id"] = match_id
     return df
 

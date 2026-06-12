@@ -16,12 +16,14 @@ competitions:
   copa_america: 223
   afc_asian_cup: 1
 
-# Season IDs for World Cups
+# Season IDs for World Cups (only these are available in StatsBomb free data)
+# Check available data: https://github.com/statsbomb/open-data
 seasons:
   wc_2022: 106
   wc_2018: 3
-  wc_2014: 26
-  wc_2010: 27
+  # Note: 2014 and 2010 World Cups are NOT in StatsBomb free data
+  # euro_2024: 282
+  # euro_2020: 55
 
 # Model hyperparameters
 model:
@@ -30,18 +32,20 @@ model:
   style_latent_dim: 4
   lstm_input_size: 4
   lstm_num_layers: 2
-  lstm_dropout: 0.2
+  lstm_dropout: 0.3
   gnn_type: "gcn"  # "gcn" or "gat"
-  classifier_dropout: 0.3
+  classifier_dropout: 0.4
 
 # Training settings
 training:
-  batch_size: 32
-  epochs: 50
-  learning_rate: 0.001
-  weight_decay: 0.0001
+  batch_size: 16  # Smaller batch for better generalization
+  epochs: 100  # More epochs with early stopping
+  learning_rate: 0.0005  # Lower LR for stability
+  weight_decay: 0.01  # Stronger regularization
   sequence_window: 20
   device: "auto"  # "auto", "cuda", "cpu"
+  label_smoothing: 0.1  # Helps with calibration
+  early_stopping_patience: 15  # Stop if no improvement
 
 # Autoencoder pre-training
 autoencoder:
@@ -59,7 +63,7 @@ backtest:
     train_end: 2017
     test_year: 2018
   fold2:
-    train_end: 2018
+    train_end: 2021
     test_year: 2022
 
 # Vision pipeline (YOLOv8)

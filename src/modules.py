@@ -106,13 +106,15 @@ class TeamGraphEncoder(nn.Module):
         hidden_dim: int = 128,
         gnn_type: str = "gcn",  # "gcn" or "gat"
         num_heads: int = 4,
+        dropout: float = 0.3,
     ):
         super().__init__()
         self.gnn_type = gnn_type
+        self.dropout = dropout
 
         if gnn_type == "gat":
-            self.conv1 = GATConv(player_feature_dim, hidden_dim // num_heads, heads=num_heads, dropout=0.2)
-            self.conv2 = GATConv(hidden_dim, hidden_dim, heads=1, concat=False, dropout=0.2)
+            self.conv1 = GATConv(player_feature_dim, hidden_dim // num_heads, heads=num_heads, dropout=dropout)
+            self.conv2 = GATConv(hidden_dim, hidden_dim, heads=1, concat=False, dropout=dropout)
         else:  # default GCN
             self.conv1 = GCNConv(player_feature_dim, hidden_dim)
             self.conv2 = GCNConv(hidden_dim, hidden_dim)
@@ -125,7 +127,7 @@ class TeamGraphEncoder(nn.Module):
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = F.relu(x)
-        x = F.dropout(x, p=0.2, training=self.training)
+        x = F.dropout(x, p=self.dropout, training=self.training)
 
         # Layer 2
         x = self.conv2(x, edge_index)
@@ -155,22 +157,25 @@ class TacticalNet(nn.Module):
         hidden_dim: int = 128,
         style_latent_dim: int = 4,
         gnn_type: str = "gcn",
-        dropout: float = 0.3,
+        dropout: float = 0.4,
     ):
         super().__init__()
         self.team_encoder = TeamGraphEncoder(
             player_feature_dim=player_feature_dim,
             hidden_dim=hidden_dim,
             gnn_type=gnn_type,
+            dropout=dropout,
         )
 
         # MLP head: [team_a_vec | team_b_vec | style_a | style_b]
         mlp_input_dim = hidden_dim * 2 + style_latent_dim * 2
         self.classifier = nn.Sequential(
             nn.Linear(mlp_input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim // 2),
+            nn.BatchNorm1d(hidden_dim // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim // 2, 3),  # [Win, Draw, Loss]
