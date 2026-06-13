@@ -10,6 +10,14 @@
 
 ---
 
+## 🌐 Live Deployment
+
+**🚀 [Try TacticalNet Live →](https://tacticalnet.streamlit.app/)**
+
+The interactive match simulator is deployed and ready to explore! Pick any two national teams, adjust their tactical styles (possession, pressing intensity, defensive depth), simulate player form trajectories, and watch the win/draw/loss probabilities update in real-time. No installation required — see how style matchups and current form can flip a predicted outcome.
+
+---
+
 ## 🔍 Why this project is different
 
 Most match predictors are Elo ratings or gradient-boosted trees over box-score aggregates. They answer *\"who is stronger?\"* but not *\"whose **style** beats whose, given current **form**?\"*. TacticalNet is built around three ideas:
@@ -194,6 +202,8 @@ streamlit run src/app.py                       # interactive match simulator
 - [ ] Tournament-level Monte Carlo simulator (group stage → final) on calibrated probabilities
 - [ ] Attention rollout visualizations: *which player nodes drive the prediction?*
 - [ ] Elo-anchored ensemble for low-data national teams
+
+
 
 ## 📄 License
 
